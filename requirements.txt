@@ -1,0 +1,4 @@
+disnake==2.9.2
+colorlog
+python-dotenv
+sqlalchemy
