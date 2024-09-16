@@ -1,23 +1,70 @@
 from disnake.ext import commands
 
-from disnake import MessageInteraction, ButtonStyle
+from disnake import MessageInteraction
 
 from core.bot import Bot
 from core.classes.codenames import Codenames
+
+
+def check_all_roles(codename: "Codenames"):
+    return all(
+        [
+            codename.blue_operative,
+            codename.blue_spymaster,
+            codename.red_operative,
+            codename.red_spymaster,
+        ]
+    )
 
 
 class Events(commands.Cog):
     def __init__(self, bot: Bot):
         self.bot = bot
 
-    def check_all_roles(self, codename: "Codenames"):
-        return all(
-            [
-                codename.blue_operative,
-                codename.blue_spymaster,
-                codename.red_operative,
-                codename.red_spymaster,
-            ]
+    @staticmethod
+    async def join_team(codename: Codenames, team: str, role: str, interaction):
+        opposite_team = "red" if team == "blue" else "blue"
+        spymaster_attr = f"{team}_spymaster"
+        operative_attr = f"{team}_operative"
+        opposite_spymaster_attr = f"{opposite_team}_spymaster"
+        opposite_operative_attr = f"{opposite_team}_operative"
+
+        if (
+            getattr(codename, opposite_spymaster_attr) == interaction.user
+            or getattr(codename, opposite_operative_attr) == interaction.user
+        ):
+            return await interaction.response.send_message(
+                f"由於你是{opposite_team}隊成員，因此你無法加入{team}隊!",
+                ephemeral=True,
+            )
+
+        current_role = getattr(
+            codename, spymaster_attr if role == "spymaster" else operative_attr
+        )
+        if current_role == interaction.user:
+            return await interaction.response.send_message(
+                f"你已經是{team}隊的{role}了!", ephemeral=True
+            )
+
+        if (
+            role == "spymaster"
+            and getattr(codename, operative_attr) == interaction.user
+        ):
+            setattr(codename, operative_attr, None)
+        elif (
+            role == "operative"
+            and getattr(codename, spymaster_attr) == interaction.user
+        ):
+            setattr(codename, spymaster_attr, None)
+
+        setattr(
+            codename,
+            spymaster_attr if role == "spymaster" else operative_attr,
+            interaction.user,
+        )
+
+        await interaction.response.send_message(
+            f"你作為{role}加入了{team}隊!", ephemeral=True
         )
 
     @commands.Cog.listener()
@@ -36,135 +83,60 @@ class Events(commands.Cog):
 
         match custom_id:
             case "join_blue_spymaster":
-                if (codename.red_spymaster or codename.red_operative) == interaction.user:
-                    await interaction.response.send_message(
-                        "You cannot join the red team as the spymaster if you are the blue team!",
-                        ephemeral=True,
-                    )
-                    return
+                await self.join_team(codename, "blue", "spymaster", interaction)
 
-                if codename.blue_spymaster == interaction.user:
-                    return await interaction.response.send_message(
-                        "You already is the spymaster!", ephemeral=True
-                    )
-
-                if codename.blue_operative == interaction.user:
-                    codename.blue_operative = None
-
-                codename.blue_spymaster = interaction.user
-                await interaction.response.send_message(
-                    "You have joined the blue team as the spymaster!", ephemeral=True
-                )
             case "join_blue_operative":
-                if (codename.red_spymaster or codename.red_operative) == interaction.user:
-                    await interaction.response.send_message(
-                        "You cannot join the red team as the operative if you are the blue team!",
-                        ephemeral=True,
-                    )
-                    return
+                await self.join_team(codename, "blue", "operative", interaction)
 
-                if codename.blue_operative == interaction.user:
-                    return await interaction.response.send_message(
-                        "You already is the operative!", ephemeral=True
-                    )
-
-                if codename.blue_spymaster == interaction.user:
-                    codename.blue_spymaster = None
-
-                codename.blue_operative = interaction.user
-                await interaction.response.send_message(
-                    "You have joined the blue team as an operative!", ephemeral=True
-                )
             case "join_red_spymaster":
-                if (codename.blue_spymaster or codename.blue_operative) == interaction.user:
-                    await interaction.response.send_message(
-                        "You cannot join the red team as the spymaster if you are the blue team!",
-                        ephemeral=True,
-                    )
-                    return
+                await self.join_team(codename, "red", "spymaster", interaction)
 
-                if codename.red_spymaster == interaction.user:
-                    return await interaction.response.send_message(
-                        "You already is the spymaster!", ephemeral=True
-                    )
-
-                if codename.red_operative == interaction.user:
-                    codename.red_operative = None
-
-                codename.red_spymaster = interaction.user
-                await interaction.response.send_message(
-                    "You have joined the red team as the spymaster!", ephemeral=True
-                )
             case "join_red_operative":
-                if (codename.blue_spymaster or codename.blue_operative) == interaction.user:
-                    await interaction.response.send_message(
-                        "You cannot join the red team as the operative if you are the blue team!",
-                        ephemeral=True,
-                    )
-                    return
+                await self.join_team(codename, "red", "operative", interaction)
 
-                if codename.red_operative == interaction.user:
-                    return await interaction.response.send_message(
-                        "You already is the spymaster!", ephemeral=True
-                    )
-
-                if codename.red_spymaster == interaction.user:
-                    codename.red_spymaster = None
-
-                codename.red_operative = interaction.user
-                await interaction.response.send_message(
-                    "You have joined the red team as an operative!", ephemeral=True
-                )
             case "randomize_teams":
-                if self.check_all_roles(codename):
-                    return await interaction.response.send_message(
-                        "All roles are already filled!", ephemeral=True
-                    )
-
                 codename.randomize_teams()
-                await interaction.response.send_message("Teams have been randomize!", ephemeral=True)
+                await interaction.response.send_message(
+                    "隊伍已隨機分配!", ephemeral=True
+                )
 
             case "start_game":
-                if not self.check_all_roles(codename):
+                if not check_all_roles(codename):
                     return await interaction.response.send_message(
-                        "All roles must be filled before starting the game!", ephemeral=True
+                        "所有身分都要有人選，否則無法開始!", ephemeral=True
                     )
 
                 await codename.start(interaction)
 
             case "reset_team":
                 codename.reset_teams()
-                await interaction.response.send_message("Teams have been reset!", ephemeral=True)
+                await interaction.response.send_message("隊伍已重製", ephemeral=True)
 
             case _:
-                if (codename.blue_spymaster or codename.red_spymaster) == interaction.user:
+                if interaction.user in (codename.blue_spymaster, codename.red_spymaster):
                     return await interaction.response.send_message(
-                        "You cannot give answers as a spymaster!", ephemeral=True
-                )
+                        "間諜首腦無法給予答案!", ephemeral=True
+                    )
 
                 text = interaction.data.custom_id.split("_")[0]
-                match codename.current_turn:
-                    case "red":
-                        if interaction.user != codename.red_operative:
-                            return await interaction.response.send_message(
-                                "It is not your turn!", ephemeral=True
-                        )
+                operative = (
+                    codename.red_operative
+                    if codename.current_turn == "red"
+                    else codename.blue_operative
+                )
 
-                        if not codename.hint:
-                            return await interaction.response.send_message(
-                                "You won't be able to give an answer until there's a hint!", ephemeral=True
-                        )
-                    case "blue":
-                        if interaction.user != codename.blue_operative:
-                            return await interaction.response.send_message(
-                                "It is not your turn!", ephemeral=True
-                        )
+                if interaction.user != operative:
+                    return await interaction.response.send_message(
+                        "還不是你的回合!", ephemeral=True
+                    )
 
-                        if not codename.hint:
-                            return await interaction.response.send_message(
-                                "You won't be able to give an answer until there's a hint!", ephemeral=True
-                        )
-                return await codename.give_answer(interaction, text, interaction.user, codename.current_turn)
+                if not codename.hint:
+                    return await interaction.response.send_message(
+                        "在得到線索前，你無法作答！", ephemeral=True
+                    )
+                return await codename.give_answer(
+                    interaction, text, codename.current_turn
+                )
         await codename.update_display(message=interaction.message)
 
 
